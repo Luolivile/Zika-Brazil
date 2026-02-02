@@ -1,0 +1,319 @@
+---
+title: "zika"
+output: html_document
+date: "2026-01-23"
+---
+
+```{r}
+#load libraries
+library(readr)
+library(dplyr)
+library(purrr)
+library(ggplot2)
+```
+
+
+```{r}
+#path to csv
+zika_path <- "C:/Users/lucil/Desktop/Zika"
+
+zika_files <- list.files(
+  path = zika_path,
+  pattern = "\\.csv$",
+  full.names = TRUE
+)
+
+zika_files
+
+```
+
+```{r}
+#import files
+
+zika <- map_dfr(
+  zika_files,
+  ~ read_delim(
+      .x,
+      delim = ",",
+      col_names = TRUE,
+      locale = locale(encoding = "ISO-8859-1")
+    )
+)
+
+View(zika)
+
+```
+
+```{r}
+#count numbers per year
+nrow(zika)
+ncol(zika)
+
+zika %>% count(NU_ANO)
+
+```
+
+```{r}
+zika_eda <- zika %>%
+  select(
+    year = NU_ANO,
+    uf = SG_UF_NOT,
+    municipio = ID_MUNICIP,
+    class_final = CLASSI_FIN
+  ) %>%
+  filter(!is.na(year))
+
+zika_eda %>% count(year)
+
+```
+
+```{r}
+#plot Brazil 2026-2025
+
+p_zika <- ggplot(zika_eda %>% count(year),
+                 aes(x = year, y = n)) +
+  geom_line(color = "#7570b3", linewidth = 1.1) +
+  geom_point(color = "#7570b3", size = 2) +
+  labs(
+    title = "Zika Virus Notifications in Brazil",
+    subtitle = "Annual counts, 2016–2025",
+    x = "Year",
+    y = "Number of notifications"
+  ) +
+  theme_minimal(base_size = 12)
+
+p_zika
+
+```
+
+```{r}
+ggsave(
+  "figures/zika_national_trend.png",
+  plot = p_zika,
+  width = 8,
+  height = 5,
+  dpi = 300
+)
+
+```
+
+```{r}
+#Checking confirmed vs notified 
+zika_confirmed <- zika_eda %>%
+  filter(class_final == 1)  
+
+zika_confirmed %>% count(year)
+
+```
+
+```{r}
+library(dplyr)
+
+zika_state_year <- zika_eda %>%
+  count(year, uf)
+
+zika_state_year
+
+```
+
+```{r}
+#loading dataset with state and region names
+
+ufs <- read_csv(
+  "https://raw.githubusercontent.com/mapaslivres/municipios-br/main/tabelas/ufs.csv"
+)
+
+glimpse(ufs)
+```
+
+```{r}
+
+#renaming
+ufs_clean <- ufs %>%
+  transmute(
+    uf_ibge = as.integer(uf),     # numeric IBGE UF code (12, 27, 32…)
+    uf_sigla = uf_code,           # "AC", "AL", "ES", …
+    uf_nome = name,               # full state name
+    macroregion = macroregion     # Norte, Nordeste, etc.
+  )
+
+```
+
+```{r}
+zika_state_year <- zika_eda %>%
+  mutate(uf_ibge = as.integer(uf)) %>%
+  count(year, uf_ibge)
+
+```
+
+```{r}
+zika_state_year_named <- zika_state_year %>%
+  left_join(ufs_clean, by = "uf_ibge")
+
+```
+
+```{r}
+zika_state_year_named %>%
+  filter(is.na(uf_sigla)) %>%
+  distinct(uf_ibge)
+  
+```
+
+```{r}
+#count by state
+ggplot(zika_state_year_named, aes(x = year, y = n)) +
+  geom_line(color = "#7570b3", linewidth = 1.05) +
+  facet_wrap(~ uf_sigla, scales = "free_y") +
+  labs(
+    title = "Zika Virus Notifications by State",
+    x = "Year",
+    y = "Number of notifications"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+#count by region
+ggplot(zika_state_year_named, aes(x = year, y = n)) +
+  geom_line(color = "#7570b3", linewidth = 1.05) +
+  facet_wrap(~ macroregion, scales = "free_y") +
+  labs(
+    title = "Zika Virus Notifications by Region",
+    x = "Year",
+    y = "Number of notifications"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+#comparison of residence vs notification
+
+library(dplyr)
+
+zika_location_compare <- zika %>%
+  filter(!is.na(NU_ANO)) %>%
+  count(
+    year = NU_ANO,
+    uf_notif = SG_UF_NOT,
+    uf_resi  = SG_UF
+  )
+
+```
+
+```{r}
+zika_loc_summary <- zika %>%
+  count(
+    uf_notif = SG_UF_NOT,
+    uf_resi  = SG_UF
+  )
+
+```
+
+```{r}
+#summarize by state totals
+notif_totals <- zika_loc_summary %>%
+  group_by(uf_notif) %>%
+  summarise(notified_cases = sum(n), .groups = "drop")
+
+resi_totals <- zika_loc_summary %>%
+  group_by(uf_resi) %>%
+  summarise(resident_cases = sum(n), .groups = "drop")
+
+```
+
+```{r}
+#summarize by state totals
+notif_named <- notif_totals %>%
+  rename(uf_ibge = uf_notif) %>%
+  left_join(ufs_clean, by = "uf_ibge")
+
+resi_named <- resi_totals %>%
+  rename(uf_ibge = uf_resi) %>%
+  left_join(ufs_clean, by = "uf_ibge")
+
+```
+
+```{r}
+#join with UF names
+notif_named <- notif_totals %>%
+  rename(uf_ibge = uf_notif) %>%
+  left_join(ufs_clean, by = "uf_ibge")
+
+resi_named <- resi_totals %>%
+  rename(uf_ibge = uf_resi) %>%
+  left_join(ufs_clean, by = "uf_ibge")
+
+```
+
+```{r}
+zika_state_table <- notif_named %>%
+  select(
+    uf_sigla,
+    uf_nome,
+    notified_cases
+  ) %>%
+  left_join(
+    resi_named %>%
+      select(uf_sigla, resident_cases),
+    by = "uf_sigla"
+  ) %>%
+  mutate(
+    difference = notified_cases - resident_cases
+  ) %>%
+  arrange(desc(abs(difference)))
+
+knitr::kable(
+  zika_state_table,
+  caption = "Comparison of Zika cases by state of notification and state of residence"
+)
+
+```
+
+```{r}
+
+
+zika_state_table_pretty <- notif_named %>%
+  select(
+    uf_sigla,
+    uf_nome,
+    notified_cases
+  ) %>%
+  left_join(
+    resi_named %>%
+      select(uf_sigla, resident_cases),
+    by = "uf_sigla"
+  ) %>%
+  mutate(
+    difference = notified_cases - resident_cases
+  ) %>%
+  arrange(desc(abs(difference)))
+
+```
+
+
+
+```{r}
+zika_state_table_pct <- zika_state_table_pretty %>%
+  mutate(
+    pct_difference = round(
+      100 * difference / resident_cases, 2
+    )
+  )
+
+knitr::kable(
+  zika_state_table_pct,
+  col.names = c(
+    "UF",
+    "State",
+    "Cases (Notification)",
+    "Cases (Residence)",
+    "Difference",
+    "% Difference"
+  ),
+  caption = "Comparison of Zika cases by state of notification and state of residence"
+)
+
+```
+
